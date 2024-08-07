@@ -1,0 +1,13 @@
+[lib]
+name = "ghost_crab_postgres"
+
+[package]
+name = "ghost-crab-postgres"
+description = "postgres adapters for ghost-crab"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+ghost-crab-macros = { path = "../ghost-crab-macros", version = "0.1.7" }
+postgres = "0.19.4"

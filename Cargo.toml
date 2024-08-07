@@ -1,4 +1,9 @@
 [workspace]
 
-members = ["ghost-crab", "ghost-crab-common", "ghost-crab-macros"]
+members = [
+    "ghost-crab",
+    "ghost-crab-common",
+    "ghost-crab-macros",
+    "ghost-crab-postgres",
+]
 resolver = "2"

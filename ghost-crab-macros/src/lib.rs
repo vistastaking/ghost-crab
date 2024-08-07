@@ -3,7 +3,7 @@ use ghost_crab_common::config;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Literal};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, ItemFn};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, ItemFn};
 
 #[proc_macro_attribute]
 pub fn event_handler(metadata: TokenStream, input: TokenStream) -> TokenStream {
@@ -157,4 +157,75 @@ fn create_handler(metadata: TokenStream, input: TokenStream, is_template: bool) 
             }
         }
     })
+}
+
+#[proc_macro_derive(StructToPGTable)]
+pub fn derive_struct_to_postgres_table(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let name = &ast.ident;
+
+    let fields = match &ast.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => &fields.named,
+            _ => panic!("StructToPGTable only supports structs with named fields"),
+        },
+        _ => panic!("StructToPGTable only supports structs"),
+    };
+
+    let field_defs = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! {
+            (stringify!(#name).trim_start_matches('_').to_string(), stringify!(#ty).to_string())
+        }
+    });
+
+    let expanded = quote! {
+        #[automatically_derived]
+        impl PostgresDDL for #name {
+            fn fields() -> Vec<(String, String)> {
+                vec![
+                    #(#field_defs),*
+                ]
+            }
+
+            fn type_to_pg_type(ty: &str) -> &'static str {
+                match ty {
+                    "i32" => "INTEGER",
+                    "i64" => "BIGINT",
+                    "f32" => "REAL",
+                    "f64" => "DOUBLE PRECISION",
+                    "String" => "TEXT",
+                    "bool" => "BOOLEAN",
+                    _ => panic!("Unsupported type: {}", ty),
+                }
+            }
+
+            fn ddl() -> String {
+                let type_name = std::any::type_name::<Self>();
+                let table_name = type_name
+                    .split("::")
+                    .last()
+                    .unwrap_or(type_name)
+                    .to_lowercase();
+
+                let columns = Self::fields()
+                    .into_iter()
+                    .map(|(name, ty)| {
+                        let pg_type = Self::type_to_pg_type(&ty);
+                        format!("    {} {}", name, pg_type)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",\n");
+
+                format!("CREATE TABLE IF NOT EXISTS {} (\n{}\n);", table_name, columns)
+            }
+
+            fn create_table(conn: &mut postgres::Client) -> Result<(), postgres::Error> {
+                conn.batch_execute(&Self::ddl())
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
 }
